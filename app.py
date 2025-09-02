@@ -67,7 +67,7 @@ current_avatar = "base"  # Tracks selected avatar
 adapters_dir = "./adapters"
 training_data_dir = "./training_data"
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
-embedding_function = SentenceTransformer(model_name="all-MiniLM-L6-v2")
+embedding_function = SentenceTransformer("all-MiniLM-L6-v2")
 
 # Load base model and tokenizer
 def load_base_model():
@@ -95,7 +95,7 @@ def load_base_model():
         raise RuntimeError(f"Failed to load base model: {str(e)}")
 
 # Load QLoRA adapter for a specific avatar
-def load_adapter(avatar: str):
+def load_adapter(avatar: str, tags=["QLoRA Adapter Management"]):
     global model, current_adapter
     adapter_path = os.path.join(adapters_dir, avatar)
     
@@ -121,16 +121,19 @@ def get_collection(avatar: str):
 # Initialize base model at startup
 load_base_model()
 
-@app.post("/select_avatar")
+@app.post("/select_avatar", tags=["Avatar Mangement"])
 async def select_avatar(request: SelectAvatarRequest):
     global current_avatar, current_adapter
-    current_avatar = request.avatar
+    
+    # Transform avatar name: lowercase and replace spaces with underscores
+    current_avatar = request.avatar.lower().replace(" ", "_")
+    
     if current_avatar != current_adapter:
         load_adapter(current_avatar)
     return {"status": f"Avatar {current_avatar} selected."}
 
 # Chroma DB 
-@app.post("/add_document")
+@app.post("/add_document", tags=["Chroma DB Training Data"])
 async def add_document(request: DocumentRequest):
     try:
         collection = get_collection(current_avatar)
@@ -145,7 +148,7 @@ async def add_document(request: DocumentRequest):
         raise HTTPException(status_code=500, detail=f"Error adding document: {str(e)}")
 
 # Chroma DB 
-@app.get("/list_documents")
+@app.get("/list_documents", tags=["Chroma DB Training Data"])
 async def list_documents():
     try:
         collection = get_collection(current_avatar)
@@ -158,7 +161,7 @@ async def list_documents():
         raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
 
 # Chroma DB 
-@app.put("/update_document")
+@app.put("/update_document", tags=["Chroma DB Training Data"])
 async def update_document(request: UpdateDocumentRequest):
     try:
         collection = get_collection(current_avatar)
@@ -172,7 +175,7 @@ async def update_document(request: UpdateDocumentRequest):
         raise HTTPException(status_code=500, detail=f"Error updating document: {str(e)}")
 
 # Chroma DB 
-@app.delete("/delete_document")
+@app.delete("/delete_document", tags=["Chroma DB Training Data"])
 async def delete_document(request: DeleteDocumentRequest):
     try:
         collection = get_collection(current_avatar)
@@ -182,7 +185,7 @@ async def delete_document(request: DeleteDocumentRequest):
         raise HTTPException(status_code=500, detail=f"Error deleting document: {str(e)}")
 
 # QLoRA Adapter
-@app.post("/add_training_document")
+@app.post("/add_training_document", tags=["QLoRA Training Data"])
 async def add_training_document(request: TrainingDocumentRequest):
     try:
         avatar_dir = os.path.join(training_data_dir, current_avatar)
@@ -205,7 +208,7 @@ async def add_training_document(request: TrainingDocumentRequest):
         raise HTTPException(status_code=500, detail=f"Error adding training document: {str(e)}")
 
 # QLoRA Adapter
-@app.get("/list_training_documents")
+@app.get("/list_training_documents", tags=["QLoRA Training Data"])
 async def list_training_documents():
     try:
         avatar_dir = os.path.join(training_data_dir, current_avatar)
@@ -224,7 +227,7 @@ async def list_training_documents():
         raise HTTPException(status_code=500, detail=f"Error listing training documents: {str(e)}")
 
 # QLoRA Adapter
-@app.put("/update_training_document")
+@app.put("/update_training_document", tags=["QLoRA Training Data"])
 async def update_training_document(request: UpdateTrainingDocumentRequest):
     try:
         avatar_dir = os.path.join(training_data_dir, current_avatar)
@@ -263,7 +266,7 @@ async def update_training_document(request: UpdateTrainingDocumentRequest):
         raise HTTPException(status_code=500, detail=f"Error updating training document: {str(e)}")
 
 # QLoRA Adapter
-@app.delete("/delete_training_document")
+@app.delete("/delete_training_document", tags=["QLoRA Training Data"])
 async def delete_training_document(request: DeleteDocumentRequest):
     try:
         avatar_dir = os.path.join(training_data_dir, current_avatar)
@@ -289,7 +292,7 @@ async def delete_training_document(request: DeleteDocumentRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting training document: {str(e)}")
 
-@app.post("/query")
+@app.post("/query", tags=["Model Interaction"])
 async def query_model(request: QueryRequest):
     global current_adapter, current_avatar
     if current_avatar != "base" and current_avatar != current_adapter:
@@ -330,7 +333,7 @@ Context:
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
 
 # QLoRA Adapter
-@app.post("/train_adapter")
+@app.post("/train_adapter", tags=["QLoRA Adapter Management"])
 async def train_adapter(request: TrainRequest):
     global model, current_avatar
     if not model:
@@ -383,7 +386,7 @@ async def train_adapter(request: TrainRequest):
         raise HTTPException(status_code=500, detail=f"Error training adapter for {current_avatar}: {str(e)}")
 
 # QLoRA Adapter
-@app.post("/attach_adapter")
+@app.post("/attach_adapter", tags=["QLoRA Adapter Management"])
 async def attach_adapter():
     try:
         load_adapter(current_avatar)
@@ -391,3 +394,6 @@ async def attach_adapter():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error attaching adapter for {current_avatar}: {str(e)}")
 
+# @app.get("/test")
+# def test_endpoint():
+#     return {"test endpoint works"}

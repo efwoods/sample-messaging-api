@@ -13,6 +13,7 @@ services:
     volumes:
       - chroma_data:/app/chroma_db
       - training_data:/app/training_data
+      - .:/app
     deploy:
       resources:
         reservations:
