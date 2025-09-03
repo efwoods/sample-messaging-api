@@ -10,30 +10,33 @@ RUN apt-get update && apt-get install -y \
 
 RUN ln -s /usr/bin/python3 /usr/bin/python
 
+# Copy requirements first for better layer caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Create all required directories
-RUN mkdir -p /app/adapters /app/data /app/training_data /app/chroma_db
+RUN mkdir -p /app/adapters /app/data /app/training_data /app/chroma_db /app/model_cache /app/sample_data
 
-# Copy the entire context and then move/organize files
-COPY . /tmp/build_context/
+# Copy application files
+COPY app.py .
 
-# Conditionally copy directories if they exist in the build context
-RUN if [ -d "/tmp/build_context/adapters" ]; then cp -r /tmp/build_context/adapters/* /app/adapters/ 2>/dev/null || true; fi
-RUN if [ -d "/tmp/build_context/data" ]; then cp -r /tmp/build_context/data/* /app/data/ 2>/dev/null || true; fi  
-RUN if [ -d "/tmp/build_context/training_data" ]; then cp -r /tmp/build_context/training_data/* /app/training_data/ 2>/dev/null || true; fi
+# Copy data files and folders
+COPY elon_musk.md .
+COPY elon_q_and_a.txt .
+COPY elon_speech.txt .
+COPY sample_data/ ./sample_data/
 
-# Clean up temporary build context
-RUN rm -rf /tmp/build_context
+# Copy empty directories (they will be created as empty if they don't contain files)
+COPY adapters/ ./adapters/
+COPY data/ ./data/
+COPY training_data/ ./training_data/
 
-# Uncomment when you have app.py
-# COPY app.py .
-
+# Set up environment variables
 ENV PYTHONUNBUFFERED=1
 ENV HUGGINGFACE_TOKEN=""
 ENV PORT=8080
 
 EXPOSE 8080
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080", "--reload"]
+# Use non-reload for production
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
