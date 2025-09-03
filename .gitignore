@@ -1,4 +1,10 @@
+model_cache
 sample_data
+adapters
+sample_data
+chroma_db
+data
+training_data
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
