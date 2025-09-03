@@ -66,7 +66,7 @@ jobs:
             --concurrency=80 \
             --timeout=300 \
             --max-instances=10 \
-            --set-env-vars="HUGGINGFACE_TOKEN=${{ secrets.HUGGINGFACE_TOKEN }},PORT=8080" \
+            --set-env-vars="HUGGINGFACE_TOKEN=${{ secrets.HUGGINGFACE_TOKEN }}" \
             --port=8080
 
       - name: Get Cloud Run URL
