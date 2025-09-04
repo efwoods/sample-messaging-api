@@ -1,0 +1,23 @@
+# docker-compose.prod.yml: CPU-only production-like environment
+services:
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nn-sample-messaging-api-cpu
+    container_name: nn-sample-messaging-api
+    environment:
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+      - CUDA_VISIBLE_DEVICES=""
+      - FORCE_CPU=1
+    ports:
+      - "8080:8080"
+    # No volumes for production-like environment (mimicking Cloud Run)
+    # All data will be ephemeral like in Cloud Run
+    restart: unless-stopped
+    # Resource limits to mimic Cloud Run constraints
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
