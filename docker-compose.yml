@@ -1,9 +1,9 @@
-# docker-compose.yml
+# docker-compose.yml: GPU Version
 services:
   fastapi:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     image: fastapi-llama-chroma
     container_name: fastapi_app
     environment:
