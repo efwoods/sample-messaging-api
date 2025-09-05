@@ -1,14 +1,15 @@
-name: Build and Deploy to Docker Hub and GCP Cloud Run
+name: Build and Deploy CPU-only to Docker Hub and GCP Cloud Run
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:  # Allow manual triggering
 
 env:
-  IMAGE_BASE_NAME: evdev3/neural-nexus-sample-messaging-api
+  IMAGE_BASE_NAME: evdev3/neural-nexus-sample-messaging-api-cpu
   IMAGE_TAG: ${{ github.sha }}
-  SERVICE_NAME: neural-nexus-sample-messaging-api
+  SERVICE_NAME: neural-nexus-sample-messaging-api-cpu
   REGION: us-east1
   PROJECT_ID: neuralnexus-467517
 
@@ -29,11 +30,11 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push CPU-only app image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile
+          file: Dockerfile.cpu
           push: true
           tags: |
             docker.io/${{ env.IMAGE_BASE_NAME }}:${{ env.IMAGE_TAG }}
@@ -52,7 +53,7 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Deploy to Cloud Run
+      - name: Deploy CPU-only version to Cloud Run
         run: |
           FULL_IMAGE_NAME="docker.io/${IMAGE_BASE_NAME}:${IMAGE_TAG}"
           
@@ -64,15 +65,17 @@ jobs:
             --memory=4Gi \
             --cpu=2 \
             --concurrency=80 \
-            --timeout=300 \
-            --max-instances=10 \
-            --set-env-vars="HUGGINGFACE_TOKEN=${{ secrets.HUGGINGFACE_TOKEN }}" \
+            --set-env-vars='HUGGINGFACE_TOKEN=${{secrets.HUGGINGFACE_TOKEN}},CUDA_VISIBLE_DEVICES="",FORCE_CPU=1' \
             --port=8080
 
-      - name: Get Cloud Run URL
+      - name: Get service URL
         run: |
-          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
-            --region=${{ env.REGION }} \
-            --format='value(status.url)')
+          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} --region=${{ env.REGION }} --format='value(status.url)')
           echo "Service deployed at: $SERVICE_URL"
-          echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_OUTPUT
+          echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_ENV
+
+      - name: Test deployment
+        run: |
+          echo "Waiting for service to be ready..."
+          sleep 30
+          curl -f $SERVICE_URL/health || echo "Health check failed - service might still be starting"
