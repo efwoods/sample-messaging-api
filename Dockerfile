@@ -16,12 +16,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
 COPY app.py .
-COPY adapters/ ./adapters/
-COPY data/ ./data/
-COPY training_data/ ./training_data/
 
-# Create/ensure all required directories exist
-RUN mkdir -p /app/chroma_db /app/model_cache /app/sample_data
+# Instead, ensure they exist at build time
+RUN mkdir -p /app/adapters /app/data /app/training_data /app/chroma_db /app/model_cache /app/sample_data
+
 
 # Set up environment variables
 ENV PYTHONUNBUFFERED=1
