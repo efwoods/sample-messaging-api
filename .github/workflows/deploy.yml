@@ -34,7 +34,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.cpu
+          file: Dockerfile
           push: true
           tags: |
             docker.io/${{ env.IMAGE_BASE_NAME }}:${{ env.IMAGE_TAG }}
@@ -63,7 +63,7 @@ jobs:
             --platform=managed \
             --allow-unauthenticated \
             --memory=4Gi \
-            --cpu=2 \
+            --cpu=1 \
             --concurrency=80 \
             --set-env-vars='HUGGINGFACE_TOKEN=${{secrets.HUGGINGFACE_TOKEN}},CUDA_VISIBLE_DEVICES="",FORCE_CPU=1' \
             --port=8080
