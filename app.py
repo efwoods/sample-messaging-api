@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, WebSocket, WebSocke
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TrainingArguments
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
 from peft import PeftModel, LoraConfig, get_peft_model
 from trl import SFTTrainer
 from datasets import load_dataset
@@ -82,16 +82,16 @@ class ModelManager:
                     del self.model
                     self.optimize_memory()
                 
-                bnb_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.bfloat16,
-                    bnb_4bit_use_double_quant=True
-                )
+                # bnb_config = BitsAndBytesConfig(
+                #     load_in_4bit=True,
+                #     bnb_4bit_quant_type="nf4",
+                #     bnb_4bit_compute_dtype=torch.bfloat16,
+                #     bnb_4bit_use_double_quant=True
+                # )
                 
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self._model_name,
-                    quantization_config=bnb_config,
+                    # quantization_config=bnb_config,
                     device_map="auto",
                     trust_remote_code=True,
                     token=os.getenv("HUGGINGFACE_TOKEN"),
@@ -1572,152 +1572,6 @@ async def get_training_sessions():
 #         logger.error(f"Error uploading text content: {str(e)}")
 #         raise HTTPException(status_code=500, detail=f"Error uploading text content: {str(e)}")
 
-# @app.get("/upload_form", response_class=HTMLResponse, tags=["ChromaDB Document Management"])
-# async def get_upload_form():
-#     """Serve HTML form for document upload"""
-#     html_content = """
-#     <!DOCTYPE html>
-#     <html>
-#     <head>
-#         <title>ChromaDB Document Upload</title>
-#         <style>
-#             body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-#             .form-group { margin-bottom: 15px; }
-#             label { display: block; margin-bottom: 5px; font-weight: bold; }
-#             input, textarea, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
-#             button { background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
-#             button:hover { background: #45a049; }
-#             .upload-area { border: 2px dashed #ccc; padding: 20px; text-align: center; border-radius: 4px; }
-#             .file-list { margin-top: 10px; }
-#             .file-item { background: #f5f5f5; padding: 5px 10px; margin: 5px 0; border-radius: 3px; }
-#         </style>
-#     </head>
-#     <body>
-#         <h1>ChromaDB Document Upload</h1>
-        
-#         <h2>Single Document Upload</h2>
-#         <form id="singleForm" enctype="multipart/form-data">
-#             <div class="form-group">
-#                 <label>File:</label>
-#                 <input type="file" name="file" required accept=".txt,.md,.pdf,.docx,.json,.csv,.xml,.html">
-#             </div>
-#             <div class="form-group">
-#                 <label>Source:</label>
-#                 <input type="text" name="source" placeholder="Document source">
-#             </div>
-#             <div class="form-group">
-#                 <label>Title:</label>
-#                 <input type="text" name="title" placeholder="Document title">
-#             </div>
-#             <div class="form-group">
-#                 <label>Author:</label>
-#                 <input type="text" name="author" placeholder="Document author">
-#             </div>
-#             <div class="form-group">
-#                 <label>Category:</label>
-#                 <input type="text" name="category" placeholder="Document category">
-#             </div>
-#             <div class="form-group">
-#                 <label>Tags (comma-separated):</label>
-#                 <input type="text" name="tags" placeholder="tag1, tag2, tag3">
-#             </div>
-#             <button type="submit">Upload Single Document</button>
-#         </form>
-        
-#         <hr style="margin: 40px 0;">
-        
-#         <h2>Bulk Document Upload</h2>
-#         <form id="bulkForm" enctype="multipart/form-data">
-#             <div class="form-group">
-#                 <label>Files (multiple):</label>
-#                 <input type="file" name="files" multiple required accept=".txt,.md,.pdf,.docx,.json,.csv,.xml,.html">
-#             </div>
-#             <div class="form-group">
-#                 <label>Source:</label>
-#                 <input type="text" name="source" placeholder="Common source for all documents">
-#             </div>
-#             <div class="form-group">
-#                 <label>Category:</label>
-#                 <input type="text" name="category" placeholder="Common category">
-#             </div>
-#             <div class="form-group">
-#                 <label>Tags (comma-separated):</label>
-#                 <input type="text" name="tags" placeholder="tag1, tag2, tag3">
-#             </div>
-#             <button type="submit">Upload Multiple Documents</button>
-#         </form>
-        
-#         <hr style="margin: 40px 0;">
-        
-#         <h2>Text Content Upload</h2>
-#         <form id="textForm">
-#             <div class="form-group">
-#                 <label>Content:</label>
-#                 <textarea name="content" rows="8" required placeholder="Enter your text content here..."></textarea>
-#             </div>
-#             <div class="form-group">
-#                 <label>Source:</label>
-#                 <input type="text" name="source" required placeholder="Content source">
-#             </div>
-#             <div class="form-group">
-#                 <label>Title:</label>
-#                 <input type="text" name="title" placeholder="Content title">
-#             </div>
-#             <div class="form-group">
-#                 <label>Author:</label>
-#                 <input type="text" name="author" placeholder="Content author">
-#             </div>
-#             <button type="submit">Upload Text Content</button>
-#         </form>
-        
-#         <div id="results" style="margin-top: 20px;"></div>
-        
-#         <script>
-#             function showResult(message, isError = false) {
-#                 const results = document.getElementById('results');
-#                 results.innerHTML = `<div style="padding: 10px; border-radius: 4px; background: ${isError ? '#ffebee' : '#e8f5e9'}; color: ${isError ? '#c62828' : '#2e7d32'};">${message}</div>`;
-#             }
-            
-#             document.getElementById('singleForm').addEventListener('submit', async (e) => {
-#                 e.preventDefault();
-#                 const formData = new FormData(e.target);
-#                 try {
-#                     const response = await fetch('/upload_document', { method: 'POST', body: formData });
-#                     const result = await response.json();
-#                     showResult(`Success: ${result.status} (ID: ${result.document_id})`);
-#                 } catch (error) {
-#                     showResult(`Error: ${error.message}`, true);
-#                 }
-#             });
-            
-#             document.getElementById('bulkForm').addEventListener('submit', async (e) => {
-#                 e.preventDefault();
-#                 const formData = new FormData(e.target);
-#                 try {
-#                     const response = await fetch('/upload_documents_bulk', { method: 'POST', body: formData });
-#                     const result = await response.json();
-#                     showResult(`Success: ${result.status}`);
-#                 } catch (error) {
-#                     showResult(`Error: ${error.message}`, true);
-#                 }
-#             });
-            
-#             document.getElementById('textForm').addEventListener('submit', async (e) => {
-#                 e.preventDefault();
-#                 const formData = new FormData(e.target);
-#                 try {
-#                     const response = await fetch('/upload_text_content', { method: 'POST', body: formData });
-#                     const result = await response.json();
-#                     showResult(`Success: ${result.status} (ID: ${result.document_id})`);
-#                 } catch (error) {
-#                     showResult(`Error: ${error.message}`, true);
-#                 }
-#             });
-#         </script>
-#     </body>
-#     </html>
-#     """
-#     return HTMLResponse(content=html_content)
 
 # # Additional utility endpoints
 # @app.get("/documents/search", tags=["ChromaDB Document Management"])
