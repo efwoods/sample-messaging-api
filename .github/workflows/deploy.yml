@@ -78,3 +78,4 @@ jobs:
           echo "Waiting for service to be ready..."
           sleep 30
           curl -f $SERVICE_URL/health || echo "Health check failed - service might still be starting"
+          
