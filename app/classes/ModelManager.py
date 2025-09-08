@@ -1,4 +1,3 @@
-# ModelManager.py
 import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -14,13 +13,14 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 import asyncio
 from huggingface_hub import login
+import gc
 
 class ModelManager:
     def __init__(self):
         self.model = None
         self.tokenizer = None
         self.current_adapter = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = self._get_device()
         self.cache_dir = Path("/tmp/adapters")
         self.cache_dir.mkdir(exist_ok=True)
         self.cache_limit = 5  # Max number of adapters to cache
@@ -29,6 +29,90 @@ class ModelManager:
         # Pre-built model path (baked into Docker image)
         self.model_path = Path("/app/models/llama-3.2-1b-instruct")
         self.model_name = "meta-llama/Llama-3.2-1B-Instruct"
+
+    def _get_device(self) -> str:
+        """Determine the appropriate device based on environment variables and hardware."""
+        # Check if GPU usage is forced off
+        force_cpu = os.getenv("FORCE_CPU", "0") == "1"
+        use_gpu = os.getenv("USE_GPU", "0") == "1"
+        
+        logger.info(f"Device selection - FORCE_CPU: {force_cpu}, USE_GPU: {use_gpu}")
+        
+        if force_cpu:
+            logger.info("CPU mode forced via FORCE_CPU=1")
+            return "cpu"
+        
+        if not use_gpu:
+            logger.info("CPU mode selected (USE_GPU not set to 1)")
+            return "cpu"
+        
+        # Check if CUDA is available and GPUs are visible
+        if torch.cuda.is_available():
+            cuda_devices = os.getenv("CUDA_VISIBLE_DEVICES", "")
+            logger.info(f"CUDA available, CUDA_VISIBLE_DEVICES: '{cuda_devices}'")
+            
+            if cuda_devices and cuda_devices.strip() != "":
+                device = "cuda:0"
+                # Log GPU information
+                if torch.cuda.device_count() > 0:
+                    gpu_name = torch.cuda.get_device_name(0)
+                    gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
+                    logger.info(f"Selected GPU device: {device} ({gpu_name}, {gpu_memory:.1f}GB)")
+                return device
+            else:
+                logger.warning("CUDA available but no devices visible (CUDA_VISIBLE_DEVICES is empty)")
+        else:
+            logger.warning("CUDA not available on this system")
+        
+        # Fallback to CPU
+        logger.info("Falling back to CPU")
+        return "cpu"
+
+    def _get_model_kwargs(self) -> Dict[str, Any]:
+        """Get model loading kwargs based on device and available memory."""
+        kwargs = {
+            "torch_dtype": torch.float16 if self.device.startswith("cuda") else torch.float32,
+            "low_cpu_mem_usage": True,
+        }
+        
+        if self.device.startswith("cuda"):
+            # GPU-specific optimizations
+            kwargs.update({
+                "device_map": "auto",
+                "trust_remote_code": True,
+            })
+            
+            # Check available GPU memory and adjust accordingly
+            if torch.cuda.is_available():
+                total_memory = torch.cuda.get_device_properties(0).total_memory
+                # If GPU has less than 8GB, use more aggressive optimizations
+                if total_memory < 8e9:
+                    logger.info("GPU has <8GB memory, enabling memory optimizations")
+                    kwargs["load_in_8bit"] = True
+        else:
+            # CPU-specific settings
+            kwargs.update({
+                "torch_dtype": torch.float32,  # CPU works better with float32
+                "device_map": None,
+            })
+        
+        return kwargs
+
+    def _cleanup_model(self):
+        """Clean up existing model from memory."""
+        if self.model is not None:
+            del self.model
+            self.model = None
+        
+        if self.tokenizer is not None:
+            del self.tokenizer
+            self.tokenizer = None
+            
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        gc.collect()
+        logger.info("Model cleanup completed")
 
     def _is_model_available(self) -> bool:
         """Check if the pre-built model is available in the expected location."""
@@ -56,35 +140,66 @@ class ModelManager:
                 raise FileNotFoundError(error_msg)
             
             logger.info(f"Loading pre-built model from: {self.model_path}")
+            logger.info(f"Target device: {self.device}")
             
             try:
                 # Load tokenizer from pre-built location
+                logger.info("Loading tokenizer...")
                 self.tokenizer = AutoTokenizer.from_pretrained(
                     str(self.model_path),
                     local_files_only=True  # Only use local files
                 )
+                
+                # Add padding token if it doesn't exist
+                if self.tokenizer.pad_token is None:
+                    self.tokenizer.pad_token = self.tokenizer.eos_token
+                
                 logger.info("Tokenizer loaded from pre-built model.")
                 
-                # Load model from pre-built location
+                # Load model from pre-built location with device-appropriate settings
+                logger.info("Loading model...")
+                model_kwargs = self._get_model_kwargs()
+                logger.info(f"Model loading kwargs: {model_kwargs}")
+                
                 self.model = AutoModelForCausalLM.from_pretrained(
                     str(self.model_path),
-                    torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
-                    device_map="auto",
-                    local_files_only=True  # Only use local files
+                    local_files_only=True,  # Only use local files
+                    **model_kwargs
                 )
+                
+                # If using CPU or device_map is None, manually move to device
+                if not self.device.startswith("cuda") or model_kwargs.get("device_map") is None:
+                    logger.info(f"Moving model to device: {self.device}")
+                    self.model = self.model.to(self.device)
+                
                 logger.info("Model loaded from pre-built model.")
+                
+                # Log memory usage
+                if torch.cuda.is_available() and self.device.startswith("cuda"):
+                    allocated = torch.cuda.memory_allocated(0) / 1e9
+                    cached = torch.cuda.memory_reserved(0) / 1e9
+                    logger.info(f"GPU memory - Allocated: {allocated:.2f}GB, Cached: {cached:.2f}GB")
                 
                 logger.info("✅ Base model loaded successfully from Docker image.")
                 metrics.model_loads.labels(model="base").inc()
                 
             except Exception as e:
                 logger.error(f"Failed to load pre-built model: {e}")
+                self._cleanup_model()  # Clean up on failure
                 raise e
 
     async def preload_model_on_startup(self):
         """Preload the model during application startup."""
         try:
             logger.info("Preloading base model on startup...")
+            logger.info(f"Device configuration: {self.device}")
+            
+            # Log environment variables for debugging
+            logger.info(f"Environment - USE_GPU: {os.getenv('USE_GPU')}, FORCE_CPU: {os.getenv('FORCE_CPU')}")
+            logger.info(f"CUDA available: {torch.cuda.is_available()}")
+            if torch.cuda.is_available():
+                logger.info(f"CUDA device count: {torch.cuda.device_count()}")
+            
             await self.load_base_model()
             logger.info("✅ Base model preloaded successfully and ready for inference.")
         except Exception as e:
@@ -113,12 +228,13 @@ class ModelManager:
             )
             tokenizer.save_pretrained(str(self.model_path))
             
-            # Download model
+            # Download model with appropriate dtype
+            model_kwargs = self._get_model_kwargs()
             model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
-                torch_dtype=torch.float16,
                 token=hf_token if hf_token else None,
-                device_map=None
+                torch_dtype=model_kwargs["torch_dtype"],
+                device_map=None  # Don't map to device during download
             )
             model.save_pretrained(str(self.model_path))
             
@@ -158,10 +274,17 @@ class ModelManager:
 
     def _attach_adapter(self, adapter_path: Path):
         """Attach adapter to the model."""
-        self.model = PeftModel.from_pretrained(self.model, str(adapter_path))
-        self.current_adapter = str(adapter_path)
-        logger.info(f"Attached adapter: {adapter_path}")
-        metrics.adapter_loads.inc()
+        try:
+            self.model = PeftModel.from_pretrained(self.model, str(adapter_path))
+            # Ensure adapter is on the same device as the base model
+            if hasattr(self.model, 'to'):
+                self.model = self.model.to(self.device)
+            self.current_adapter = str(adapter_path)
+            logger.info(f"Attached adapter: {adapter_path} on device: {self.device}")
+            metrics.adapter_loads.inc()
+        except Exception as e:
+            logger.error(f"Failed to attach adapter {adapter_path}: {e}")
+            raise e
 
     async def _cache_adapter(self, avatar_id: str, adapter_path: Path):
         """Cache adapter locally and manage cache limit."""
@@ -234,22 +357,36 @@ Context:
 Q: {user_input}
 A:"""
 
-        inputs = self.tokenizer(prompt, return_tensors="pt", return_attention_mask=True).to(self.device)
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                pad_token_id=self.tokenizer.eos_token_id,
-                eos_token_id=self.tokenizer.eos_token_id
-            )
-
-        response = self.tokenizer.decode(outputs[0], skip_special_tokens=True).split("A:")[-1].strip()
-        if not adapter_used and avatar_id:
-            response += " (Adapter not used: not found in S3 or cache)"
+        # Prepare inputs and ensure they're on the correct device
+        inputs = self.tokenizer(prompt, return_tensors="pt", return_attention_mask=True)
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
         
-        return {
-            "response": response,
-            "adapter_used": adapter_used,
-            "context_used": use_context and context != "No relevant context found."
-        }
+        try:
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    pad_token_id=self.tokenizer.eos_token_id,
+                    eos_token_id=self.tokenizer.eos_token_id
+                )
+
+            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True).split("A:")[-1].strip()
+            if not adapter_used and avatar_id:
+                response += " (Adapter not used: not found in S3 or cache)"
+            
+            # Log GPU memory usage after inference
+            if torch.cuda.is_available() and self.device.startswith("cuda"):
+                allocated = torch.cuda.memory_allocated(0) / 1e9
+                logger.debug(f"Post-inference GPU memory allocated: {allocated:.2f}GB")
+            
+            return {
+                "response": response,
+                "adapter_used": adapter_used,
+                "context_used": use_context and context != "No relevant context found.",
+                "device": self.device
+            }
+            
+        except Exception as e:
+            logger.error(f"Error during model inference: {e}")
+            raise e

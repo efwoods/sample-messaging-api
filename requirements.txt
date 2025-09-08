@@ -22,3 +22,69 @@ peft
 prometheus_client
 redis
 huggingface_hub
+bitsandbytes
+
+
+# Core FastAPI and web dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# ML and AI dependencies with GPU support
+torch>=2.0.0
+transformers>=4.35.0
+tokenizers>=0.14.0
+accelerate>=0.24.0
+peft>=0.6.0
+bitsandbytes>=0.41.0  # For quantization support
+
+# Hugging Face
+huggingface_hub>=0.17.0
+datasets>=2.14.0
+
+# Database and caching
+motor>=3.3.0  # MongoDB async driver
+pymongo>=4.5.0
+redis>=5.0.0
+aioredis>=2.0.0
+
+# AWS and cloud storage
+boto3>=1.29.0
+botocore>=1.32.0
+aiobotocore>=2.7.0
+
+# HTTP and networking
+aiohttp>=3.8.0
+httpx>=0.25.0
+requests>=2.31.0
+
+# Monitoring and observability
+prometheus-client>=0.17.0
+structlog>=23.1.0
+
+# Data processing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Vector databases (if using)
+chromadb>=0.4.0
+sentence-transformers>=2.2.0  # For embeddings
+
+# Utilities
+python-dotenv>=1.0.0
+python-multipart>=0.0.6
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+uuid>=1.30
+
+# Development dependencies
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.5.0
+
+# Optional: If you want to use specific CUDA versions
+# torch==2.1.0+cu118 --index-url https://download.pytorch.org/whl/cu118
+# torchvision==0.16.0+cu118 --index-url https://download.pytorch.org/whl/cu118
+# torchaudio==2.1.0+cu118 --index-url https://download.pytorch.org/whl/cu118

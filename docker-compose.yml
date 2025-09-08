@@ -6,13 +6,15 @@ services:
       dockerfile: Dockerfile.dev
       args:
         HUGGINGFACE_TOKEN: ${HUGGINGFACE_TOKEN} # Pass from .env file
-    image: nn-sample-messaging-api-cpu
+    image: nn-sample-messaging-api-${USE_GPU:-cpu}
     container_name: nn-sample-messaging-api
     env_file:
       - .env # Load local .env file
     environment:
-      - CUDA_VISIBLE_DEVICES=""
-      - FORCE_CPU=1
+      # GPU configuration - dynamically set based on USE_GPU flag
+      - CUDA_VISIBLE_DEVICES=${USE_GPU:-}${USE_GPU:+"0"}${USE_GPU:-""}
+      - FORCE_CPU=${USE_GPU:-1}${USE_GPU:+0}
+      - USE_GPU=${USE_GPU:-0}
       - UVICORN_RELOAD=1
     ports:
       - "8085:8085"
@@ -25,8 +27,15 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 4G
+          cpus: '2.0'
+          memory: ${USE_GPU:-4G}${USE_GPU:+8G}
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${USE_GPU:-0}${USE_GPU:+1}
+              capabilities: [gpu]
+    # Only add runtime when using GPU
+    runtime: ${USE_GPU:-}${USE_GPU:+nvidia}
 
 volumes:
   model_cache:
