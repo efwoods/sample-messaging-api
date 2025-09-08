@@ -1,35 +1,47 @@
-# Dockerfile.cpu - CPU-only version for local production-like environment
-FROM python:3.10-slim
+# Dockerfile.dev
+FROM python:3.11-slim
 
+# Set working directory
 WORKDIR /app
 
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     git \
-    build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better layer caching
+# Copy requirements first for better Docker layer caching
 COPY requirements.txt .
 
-# Install CPU-only versions of packages
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application files
-COPY app.py .
-COPY adapters/ ./adapters/
+# Create model directory (this will NOT be overridden by volume mount)
+RUN mkdir -p /app/models
 
+# Set environment variables for model download
+ENV HF_HOME=/app/models
+ENV TRANSFORMERS_CACHE=/app/models
+ENV HF_DATASETS_CACHE=/app/models
 
-# Create/ensure all required directories exist
-RUN mkdir -p /app/chroma_db /app/model_cache /app/sample_data
+# Copy the model download script
+COPY app/utils/download_model.py /app/utils/download_model.py
 
-# Set up environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PORT=8085
-# Force CPU-only mode
-ENV CUDA_VISIBLE_DEVICES=""
-ENV FORCE_CPU=1
+# Download the model during build (requires HF token as build arg)
+ARG HUGGINGFACE_TOKEN
+ENV HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
 
+# Run the download script
+RUN python /app/utils/download_model.py
+
+# Create necessary directories for the app
+RUN mkdir -p /app/api /app/core /app/db /app/models /app/service /app/utils
+
+# Copy application code (this will be overridden by volume mount in dev)
+# COPY ./app /app/
+
+# Expose port
 EXPOSE 8085
 
-# Use non-reload for production-like environment
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8085", "--reload"]
+# Run the application with hot reloading
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8085", "--reload"]

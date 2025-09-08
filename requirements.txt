@@ -11,3 +11,14 @@ datasets==3.0.1
 accelerate==1.0.1
 
 python-multipart
+pydantic-settings
+
+aioboto3
+aiohttp
+botocore
+fastapi
+motor
+peft
+prometheus_client
+redis
+huggingface_hub

@@ -157,6 +157,21 @@ avatars_updated_total = get_or_create_metric(
     "avatars_updated_total", "Total Number of Updated Avatars"
 )
 
+app_starts = get_or_create_metric(
+    "app_starts", "The number of times the application starts. Costs $0.35 for GPU startup per hour."
+)
+
+db_operations = get_or_create_metric(
+    "db_operations", "Number of database operations completed by the inference endpoint."
+)
+
+model_errors = get_or_create_metric(
+    "model_errors", "Number of errors during inference because of the model."
+)
+
+redis_operations_total = get_or_create_metric(
+    "redis_operations_total", "Number of total Redis operations"
+)
 
 class Metrics:
     def __init__(self):
@@ -194,6 +209,8 @@ class Metrics:
         self.avatars_created_total = avatars_created_total
         self.avatars_deleted_total = avatars_deleted_total 
         self.avatars_updated_total = avatars_updated_total
-
-
+        self.app_starts = app_starts
+        self.db_operations = db_operations
+        self.model_errors = model_errors
+        self.redis_operations_total = redis_operations_total
 metrics = Metrics()

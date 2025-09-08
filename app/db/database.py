@@ -3,7 +3,7 @@ from core.config import settings
 from core.logging import logger
 from core.monitoring import metrics
 from motor.motor_asyncio import AsyncIOMotorClient
-from db.database import db
+
 
 class Database:
     def __init__(self):
@@ -35,7 +35,7 @@ class Database:
             raise RuntimeError("MongoDB not initialized")
         return self.mongo_db["avatars"]
 
-    async def init_mongodb():
+    async def init_mongodb(self):
         try:
             # Remote Connection:
             db.mongo_client = AsyncIOMotorClient(settings.MONGO_URI)
@@ -51,15 +51,15 @@ class Database:
             metrics.db_connection_status.labels(database="mongodb").set(0)
 
 
-    async def db_connect():
+    async def db_connect(self):
         logger.debug("Database.connect() called")
-        await init_mongodb()
+        await db.init_mongodb()
         # init_chroma
         logger.debug(f"Database connection pools: mongo_client={db.mongo_client}")
         logger.debug(f"[connect] Database instance id: {id(db.get_id())}")
 
 
-    async def db_disconnect():
+    async def db_disconnect(self):
         if db.mongo_client:
             db.mongo_client.close()
         metrics.db_connection_status.labels(database="mongodb").set(0)

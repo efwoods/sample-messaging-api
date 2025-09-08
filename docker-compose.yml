@@ -1,27 +1,33 @@
-# docker-compose.yml: CPU-only production-like environment (local development use)
+# docker-compose.yml
 services:
   fastapi:
     build:
       context: .
       dockerfile: Dockerfile.dev
+      args:
+        HUGGINGFACE_TOKEN: ${HUGGINGFACE_TOKEN} # Pass from .env file
     image: nn-sample-messaging-api-cpu
     container_name: nn-sample-messaging-api
+    env_file:
+      - .env # Load local .env file
     environment:
-      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
       - CUDA_VISIBLE_DEVICES=""
       - FORCE_CPU=1
+      - UVICORN_RELOAD=1
     ports:
       - "8085:8085"
     volumes:
-      # - chroma_db:/app/chroma_db
-      # - training_data:/app/training_data
-      - .:/app      
-    # No volumes for production-like environment (mimicking Cloud Run)
-    # All data will be ephemeral like in Cloud Run
+      # Mount app directory for hot reloading, but EXCLUDE the models directory
+      - ./app:/app:delegated
+      # Create a named volume for models to persist the downloaded model
+      - model_cache:/app/models
     restart: unless-stopped
-    # Resource limits to mimic Cloud Run constraints
     deploy:
       resources:
         limits:
           cpus: '1.0'
-          # memory: 2G
+          memory: 4G
+
+volumes:
+  model_cache:
+    driver: local
