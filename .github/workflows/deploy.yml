@@ -61,7 +61,7 @@ jobs:
             --region=${{ env.REGION }} \
             --platform=managed \
             --allow-unauthenticated \
-            --memory=2Gi \
+            --memory=4Gi \
             --cpu=1 \
             --concurrency=80 \
             --set-env-vars='HUGGINGFACE_TOKEN=${{secrets.HUGGINGFACE_TOKEN}},CUDA_VISIBLE_DEVICES="",FORCE_CPU=1' \

@@ -1,0 +1,29 @@
+# docker-compose.yml: GPU Version
+services:
+  fastapi:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: fastapi-llama-chroma
+    container_name: fastapi_app
+    environment:
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/app/chroma_db
+      - training_data:/app/training_data
+      - .:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+volumes:
+  chroma_data:
+    name: chroma_data
+  training_data:
+    name: training_data

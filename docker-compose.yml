@@ -1,29 +1,27 @@
-# docker-compose.yml: GPU Version
+# docker-compose.yml: CPU-only production-like environment (local development use)
 services:
   fastapi:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    image: fastapi-llama-chroma
-    container_name: fastapi_app
+    image: nn-sample-messaging-api-cpu
+    container_name: nn-sample-messaging-api
     environment:
       - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+      - CUDA_VISIBLE_DEVICES=""
+      - FORCE_CPU=1
     ports:
-      - "8000:8000"
+      - "8085:8085"
     volumes:
-      - chroma_data:/app/chroma_db
-      - training_data:/app/training_data
-      - .:/app
+      # - chroma_db:/app/chroma_db
+      # - training_data:/app/training_data
+      - .:/app      
+    # No volumes for production-like environment (mimicking Cloud Run)
+    # All data will be ephemeral like in Cloud Run
+    restart: unless-stopped
+    # Resource limits to mimic Cloud Run constraints
     deploy:
       resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    restart: unless-stopped
-volumes:
-  chroma_data:
-    name: chroma_data
-  training_data:
-    name: training_data
+        limits:
+          cpus: '1.0'
+          # memory: 2G
