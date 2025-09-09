@@ -1,0 +1,1 @@
+I need to be able to either use GPU or CPU locally and have the app hot reload for development purposes locally. On prod, I will need to be able to configure this for either gpu or cpu and I will not use 

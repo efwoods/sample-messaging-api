@@ -69,34 +69,47 @@ class ModelManager:
         return "cpu"
 
     def _get_model_kwargs(self) -> Dict[str, Any]:
-        """Get model loading kwargs based on device and available memory."""
-        kwargs = {
-            "torch_dtype": torch.float16 if self.device.startswith("cuda") else torch.float32,
-            "low_cpu_mem_usage": True,
-        }
-        
-        if self.device.startswith("cuda"):
-            # GPU-specific optimizations
-            kwargs.update({
-                "device_map": "auto",
+            """Get model loading kwargs based on device and available memory."""
+            kwargs = {
+                "torch_dtype": torch.float16 if self.device.startswith("cuda") else torch.float32,
+                "low_cpu_mem_usage": True,
                 "trust_remote_code": True,
-            })
+            }
             
-            # Check available GPU memory and adjust accordingly
-            if torch.cuda.is_available():
-                total_memory = torch.cuda.get_device_properties(0).total_memory
-                # If GPU has less than 8GB, use more aggressive optimizations
-                if total_memory < 8e9:
-                    logger.info("GPU has <8GB memory, enabling memory optimizations")
-                    kwargs["load_in_8bit"] = True
-        else:
-            # CPU-specific settings
-            kwargs.update({
-                "torch_dtype": torch.float32,  # CPU works better with float32
-                "device_map": None,
-            })
-        
-        return kwargs
+            if self.device.startswith("cuda"):
+                # GPU-specific optimizations
+                kwargs.update({
+                    "device_map": "auto",
+                })
+                
+                # Check available GPU memory and adjust accordingly
+                if torch.cuda.is_available():
+                    try:
+                        total_memory = torch.cuda.get_device_properties(0).total_memory
+                        available_memory = total_memory - torch.cuda.memory_allocated(0)
+                        memory_gb = available_memory / 1e9
+                        
+                        logger.info(f"GPU memory available: {memory_gb:.1f}GB")
+                        
+                        # If GPU has less than 6GB available, use 8-bit loading
+                        if memory_gb < 6:
+                            logger.info("GPU has <6GB available memory, enabling 8-bit loading")
+                            kwargs["load_in_8bit"] = True
+                        # If GPU has less than 4GB available, use 4-bit loading
+                        elif memory_gb < 4:
+                            logger.info("GPU has <4GB available memory, enabling 4-bit loading")
+                            kwargs["load_in_4bit"] = True
+                            
+                    except Exception as e:
+                        logger.warning(f"Could not check GPU memory: {e}")
+            else:
+                # CPU-specific settings
+                kwargs.update({
+                    "torch_dtype": torch.float32,  # CPU works better with float32
+                    "device_map": None,
+                })
+            
+            return kwargs
 
     def _cleanup_model(self):
         """Clean up existing model from memory."""
@@ -181,7 +194,7 @@ class ModelManager:
                     logger.info(f"GPU memory - Allocated: {allocated:.2f}GB, Cached: {cached:.2f}GB")
                 
                 logger.info("✅ Base model loaded successfully from Docker image.")
-                metrics.model_loads.labels(model="base").inc()
+                metrics.model_loads.inc()
                 
             except Exception as e:
                 logger.error(f"Failed to load pre-built model: {e}")
@@ -272,20 +285,6 @@ class ModelManager:
                 metrics.adapter_s3_errors.inc()
                 return False
 
-    def _attach_adapter(self, adapter_path: Path):
-        """Attach adapter to the model."""
-        try:
-            self.model = PeftModel.from_pretrained(self.model, str(adapter_path))
-            # Ensure adapter is on the same device as the base model
-            if hasattr(self.model, 'to'):
-                self.model = self.model.to(self.device)
-            self.current_adapter = str(adapter_path)
-            logger.info(f"Attached adapter: {adapter_path} on device: {self.device}")
-            metrics.adapter_loads.inc()
-        except Exception as e:
-            logger.error(f"Failed to attach adapter {adapter_path}: {e}")
-            raise e
-
     async def _cache_adapter(self, avatar_id: str, adapter_path: Path):
         """Cache adapter locally and manage cache limit."""
         self._update_cache_order(avatar_id)
@@ -343,24 +342,43 @@ class ModelManager:
 
         adapter_used = False
         if avatar_id:
-            adapter_used = await self.load_adapter(user_id, avatar_id)
+            try:
+                adapter_used = await self.load_adapter(user_id, avatar_id)
+                if adapter_used:
+                    logger.info(f"Using adapter for avatar {avatar_id}")
+                else:
+                    logger.info(f"No adapter found for avatar {avatar_id}, using base model")
+            except Exception as e:
+                logger.warning(f"Failed to load adapter for {avatar_id}: {e}")
+                adapter_used = False
+
+        # If no adapter was loaded or avatar_id is None, ensure we're using base model
+        if not adapter_used:
+            await self._ensure_base_model()
 
         context = ""
         if use_context:
             context = await self.query_vectorstore(user_input, user_id, avatar_id or "default")
 
-        prompt = f"""You are an assistant. Use the context to answer the question briefly.
+        # Build prompt based on whether we have context
+        if context and context != "No relevant context found.":
+            prompt = f"""You are an assistant. Use the context to answer the question briefly.
 
-Context:
-{context}
+    Context:
+    {context}
 
-Q: {user_input}
-A:"""
+    Q: {user_input}
+    A:"""
+        else:
+            prompt = f"""You are a helpful assistant. Answer the question briefly.
+
+    Q: {user_input}
+    A:"""
 
         # Prepare inputs and ensure they're on the correct device
         inputs = self.tokenizer(prompt, return_tensors="pt", return_attention_mask=True)
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        
+
         try:
             with torch.no_grad():
                 outputs = self.model.generate(
@@ -368,25 +386,84 @@ A:"""
                     max_new_tokens=max_new_tokens,
                     do_sample=False,
                     pad_token_id=self.tokenizer.eos_token_id,
-                    eos_token_id=self.tokenizer.eos_token_id
+                    eos_token_id=self.tokenizer.eos_token_id,
+                    temperature=0.7,  # Add some temperature for better responses
+                    repetition_penalty=1.1  # Prevent repetitive responses
                 )
 
-            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True).split("A:")[-1].strip()
-            if not adapter_used and avatar_id:
-                response += " (Adapter not used: not found in S3 or cache)"
-            
+            # Extract only the generated part (after the prompt)
+            generated_tokens = outputs[0][inputs['input_ids'].shape[1]:]
+            response = self.tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+
+            # If response is empty or just whitespace, provide a fallback
+            if not response:
+                response = "I'm sorry, I couldn't generate a proper response. Could you please rephrase your question?"
+
             # Log GPU memory usage after inference
             if torch.cuda.is_available() and self.device.startswith("cuda"):
                 allocated = torch.cuda.memory_allocated(0) / 1e9
                 logger.debug(f"Post-inference GPU memory allocated: {allocated:.2f}GB")
-            
+
+            # Log the successful inference
+            model_type = "adapter" if adapter_used else "base model"
+            logger.info(f"Generated response using {model_type} for user {user_id}")
+
             return {
                 "response": response,
                 "adapter_used": adapter_used,
                 "context_used": use_context and context != "No relevant context found.",
-                "device": self.device
+                "device": self.device,
+                "model_type": model_type
             }
-            
+
         except Exception as e:
             logger.error(f"Error during model inference: {e}")
+            # Return a proper error response instead of raising
+            return {
+                "response": "I apologize, but I encountered an error while processing your request. Please try again.",
+                "adapter_used": adapter_used,
+                "context_used": False,
+                "device": self.device,
+                "error": str(e)
+            }
+
+    async def _ensure_base_model(self):
+        """Ensure we're using the base model (not wrapped with an adapter)."""
+        if self.current_adapter is not None:
+            logger.info("Switching back to base model")
+            # If we have an adapter currently loaded, we need to reload the base model
+            # This is because PEFT wraps the original model
+            if hasattr(self, 'base_model') and self.base_model is not None:
+                self.model = self.base_model
+            else:
+                # Fallback: reload the base model
+                await self.load_base_model()
+            self.current_adapter = None
+
+    def _attach_adapter(self, adapter_path: Path):
+        """Attach adapter to the model."""
+        try:
+            # Save reference to base model if we don't have one
+            if not hasattr(self, 'base_model') or self.base_model is None:
+                self.base_model = self.model
+
+            # Create PEFT model from base model
+            self.model = PeftModel.from_pretrained(self.base_model, str(adapter_path))
+
+            # Ensure adapter is on the same device as the base model
+            if hasattr(self.model, 'to'):
+                self.model = self.model.to(self.device)
+
+            self.current_adapter = str(adapter_path)
+            logger.info(f"Attached adapter: {adapter_path} on device: {self.device}")
+            metrics.adapter_loads.inc()
+
+        except Exception as e:
+            logger.error(f"Failed to attach adapter {adapter_path}: {e}")
+            # Fall back to base model on adapter loading failure
+            if hasattr(self, 'base_model') and self.base_model is not None:
+                self.model = self.base_model
+                self.current_adapter = None
             raise e
+
+        

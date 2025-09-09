@@ -17,8 +17,11 @@ from uuid import uuid4
 import motor.motor_asyncio
 import datetime
 from huggingface_hub import login
+from api.device_toggle import router as device_toggle_router
+
 
 app = FastAPI()
+app.include_router(device_toggle_router)
 model_manager = ModelManager()
 
 class QueryRequest(BaseModel):

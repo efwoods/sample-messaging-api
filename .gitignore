@@ -1,3 +1,5 @@
+app/models/
+
 model_cache
 sample_data
 adapters

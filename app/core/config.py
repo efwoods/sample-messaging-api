@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # Production
     PRODUCTION: bool
 
+    USE_GPU: int
+    FORCE_CPU: int
+    CUDA_VISIBLE_DEVICES: int
+
     class Config:
         env_file = ".env"
 

@@ -1,63 +1,68 @@
-# Use CUDA-compatible base image for GPU support, but also works on CPU
-FROM python:3.11-slim
+# Use NVIDIA CUDA base image with Python 3.11
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
+
+# Set environment variables to prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies including CUDA-compatible packages
+# Install system dependencies including Python 3.11
 RUN apt-get update && apt-get install -y \
-    git \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y \
+    python3.11 \
+    python3.11-dev \
+    python3.11-distutils \
+    python3-pip \
     curl \
-    wget \
     build-essential \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better Docker layer caching
-COPY requirements.txt .
+# Make python3.11 the default python3
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
-# Install Python dependencies with GPU support
-RUN pip install --no-cache-dir -r requirements.txt
+# Upgrade pip
+RUN python3 -m pip install --upgrade pip
 
-# Install PyTorch with CUDA support (this will also work on CPU)
-# The version should match your requirements.txt, but ensure it has CUDA support
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# Create model directory (this will NOT be overridden by volume mount)
-RUN mkdir -p /app/models
-
-# Set environment variables for model download and caching
+# Set environment variables for model caching
 ENV HF_HOME=/app/models
 ENV TRANSFORMERS_CACHE=/app/models
 ENV HF_DATASETS_CACHE=/app/models
 ENV TORCH_HOME=/app/models
 
-# GPU-related environment variables (can be overridden by docker-compose)
-ENV CUDA_VISIBLE_DEVICES=""
-ENV FORCE_CPU=1
-ENV USE_GPU=0
+# Ensure PyTorch uses GPU
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
 
-# Copy the model download script
-COPY app/utils/download_model.py /app/utils/download_model.py
+# Set CUDA architectures for better compatibility
+ENV TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.0;8.6+PTX"
 
-# Download the model during build (requires HF token as build arg)
-ARG HUGGINGFACE_TOKEN
-ENV HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+# Copy requirements first for better Docker layer caching
+COPY requirements.txt .
 
-# Run the download script
-RUN python /app/utils/download_model.py
+# Install Python dependencies with CUDA support
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Create necessary directories for the app
-RUN mkdir -p /app/api /app/core /app/db /app/models /app/service /app/utils /app/classes
+# Create models directory
+RUN mkdir -p /app/models
 
-# Copy application code (this will be overridden by volume mount in dev)
-# COPY ./app /app/
+# Copy the application code
+COPY ./app /app
+
+# Set Python path
+ENV PYTHONPATH=/app
 
 # Expose port
 EXPOSE 8085
 
-# Health check to verify the container is working
-HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8085/health || exit 1
+# Add healthcheck to verify GPU is accessible
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD python3 -c "import torch; print('CUDA available:', torch.cuda.is_available()); exit(0 if torch.cuda.is_available() else 1)" || exit 1
 
 # Run the application with hot reloading
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8085", "--reload"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8085", "--reload", "--reload-dir", "/app"]

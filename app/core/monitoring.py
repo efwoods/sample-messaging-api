@@ -173,6 +173,20 @@ redis_operations_total = get_or_create_metric(
     "redis_operations_total", "Number of total Redis operations"
 )
 
+adapter_s3_errors = get_or_create_metric(
+    "adapter_s3_errors", "Number of errors when searching for the adapter in s3."
+)
+
+
+adapter_s3_errors = get_or_create_metric(
+    "adapter_s3_errors", "Number of errors when searching for the adapter in s3."
+)
+
+adapter_s3_downloads = get_or_create_metric(
+    "adapter_s3_downloads", "Number of successful adapter s3 downloads."
+)
+
+
 class Metrics:
     def __init__(self):
         self.health_requests = health_requests
@@ -213,4 +227,7 @@ class Metrics:
         self.db_operations = db_operations
         self.model_errors = model_errors
         self.redis_operations_total = redis_operations_total
+        self.adapter_s3_errors = adapter_s3_errors
+        self.adapter_s3_downloads = adapter_s3_downloads
+
 metrics = Metrics()
